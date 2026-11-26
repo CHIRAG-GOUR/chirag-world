@@ -6,7 +6,7 @@ import { useFrame } from '@react-three/fiber';
 import { useKeyboardControls } from '@react-three/drei';
 import { RigidBody, CapsuleCollider, useRapier, type RapierRigidBody } from '@react-three/rapier';
 import type { Collider, KinematicCharacterController } from '@dimforge/rapier3d-compat';
-import CharacterModel from './CharacterModel';
+import CharacterModel from './CharacterGLB';
 import { runtime, SPAWN, HOME } from './runtime';
 import { touch } from './touch';
 import { useSession, useSettings } from '../state/stores';
