@@ -7,6 +7,7 @@ import { Text } from '@react-three/drei';
 import { RigidBody, CuboidCollider } from '@react-three/rapier';
 import { useMaterials } from './materials';
 import { FONT_UI } from './Plaza';
+import DeskSetup from './DeskSetup';
 
 // house shell (world coords)
 const X0 = 23, X1 = 37, Z0 = 80, Z1 = 92, H = 3.6, T = 0.3;
@@ -101,6 +102,27 @@ function Figure({ position, colors }: { position: [number, number, number]; colo
   );
 }
 
+
+function plasterWall() {
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d')!; g.fillStyle = '#d8c2a3'; g.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 7000; i++) { const v = 150 + Math.random() * 90; g.fillStyle = `rgba(${v},${v * 0.85},${v * 0.68},0.35)`; g.fillRect(Math.random() * 256, Math.random() * 256, 2, 2); }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(6, 3);
+  return new THREE.MeshStandardMaterial({ map: t, roughness: 0.95 });
+}
+
+function plankFloor() {
+  const c = document.createElement('canvas'); c.width = 512; c.height = 512;
+  const g = c.getContext('2d')!;
+  for (let r = 0; r < 8; r++) for (let k = 0; k < 4; k++) {
+    const x = k * 170 - (r % 2) * 85;
+    g.fillStyle = `hsl(${18 + Math.random() * 6}, ${38 + Math.random() * 10}%, ${22 + Math.random() * 7}%)`; g.fillRect(x, r * 64, 170, 64);
+    g.strokeStyle = 'rgba(0,0,0,0.45)'; g.strokeRect(x + 0.5, r * 64 + 0.5, 170, 64);
+  }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(4, 4);
+  return new THREE.MeshStandardMaterial({ map: t, roughness: 0.5 });
+}
+
 export default function Home() {
   const M = useMaterials();
   const tex = useMemo(() => ({
@@ -109,8 +131,8 @@ export default function Home() {
   }), []);
   const cladding = useMemo(() => new THREE.MeshStandardMaterial({ color: '#efe8da', roughness: 0.85 }), []);
   const timber = useMemo(() => new THREE.MeshStandardMaterial({ color: '#9a6b45', roughness: 0.7 }), []);
-  const interiorWall = useMemo(() => new THREE.MeshStandardMaterial({ color: '#4a4f5c', roughness: 0.9 }), []);
-  const floorMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#7a5a40', roughness: 0.55 }), []);
+  const interiorWall = useMemo(() => plasterWall(), []);
+  const floorMat = useMemo(() => plankFloor(), []);
   const windowMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#cfe3ee', emissive: '#bcd7e6', emissiveIntensity: 0.55, roughness: 0.1, metalness: 0.2 }), []);
   const ledMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#ffffff', emissive: '#7fb7ff', emissiveIntensity: 2.2 }), []);
   const cx = (X0 + X1) / 2, cz = (Z0 + Z1) / 2;
@@ -142,7 +164,7 @@ export default function Home() {
       <mesh position={[cx, H + 0.42, cz]} material={timber} castShadow><boxGeometry args={[X1 - X0 + 1.3, 0.25, Z1 - Z0 + 1.3]} /></mesh>
       <mesh position={[cx, H - 0.01, cz]} rotation-x={Math.PI / 2} material={interiorWall}><planeGeometry args={[X1 - X0, Z1 - Z0]} /></mesh>
       {/* windows (glazing panels on both faces) */}
-      {[[X0 - 0.16, 1.8, 84, Math.PI / 2], [X0 + 0.16, 1.8, 84, -Math.PI / 2], [X1 + 0.16, 1.8, 86, -Math.PI / 2], [X1 - 0.16, 1.8, 86, Math.PI / 2]].map(([x, y, z, r], i) => (
+      {[[X0 - 0.16, 1.8, 84, Math.PI / 2], [X0 + 0.16, 1.8, 84, -Math.PI / 2], [X1 + 0.16, 1.8, 82.9, -Math.PI / 2], [X1 - 0.16, 1.8, 82.9, Math.PI / 2]].map(([x, y, z, r], i) => (
         <mesh key={i} position={[x, y, z]} rotation-y={r} material={windowMat}><planeGeometry args={[3.2, 1.6]} /></mesh>
       ))}
       {[[26, 1.8], [34, 1.8]].map(([x, y], i) => (
@@ -157,62 +179,22 @@ export default function Home() {
 
       {/* ---------- interior */}
       <mesh position={[cx, 0.24, cz]} rotation-x={-Math.PI / 2} material={floorMat} receiveShadow><planeGeometry args={[X1 - X0 - T, Z1 - Z0 - T]} /></mesh>
-      <mesh position={[31.2, 0.25, 87.4]} rotation-x={-Math.PI / 2} receiveShadow><circleGeometry args={[2.2, 48]} /><meshStandardMaterial color="#6f5f4c" roughness={1} /></mesh>
       {/* LED strip along the ceiling edge */}
       {[[cx, H - 0.08, Z1 - 0.2, X1 - X0 - 0.8, 0], [X0 + 0.2, H - 0.08, cz, Z1 - Z0 - 0.8, Math.PI / 2], [X1 - 0.2, H - 0.08, cz, Z1 - Z0 - 0.8, Math.PI / 2]].map(([x, y, z, len, r], i) => (
         <mesh key={i} position={[x, y, z]} rotation-y={r} material={ledMat}><boxGeometry args={[len, 0.04, 0.04]} /></mesh>
       ))}
-      <pointLight position={[30, 3.1, 87]} intensity={9} distance={12} decay={2} color="#ffd2a0" castShadow={false} />
+      <pointLight position={[29.5, 3.0, 88.6]} intensity={7} distance={10} decay={2} color="#ffcf9a" castShadow={false} />
       <pointLight position={[26, 2.6, 84]} intensity={4} distance={9} decay={2} color="#8fb4ff" />
-      <pointLight position={[30, 1.3, 90.6]} intensity={2.5} distance={3.5} decay={2} color="#9ec5ff" />
 
-      {/* desk against the south wall */}
-      <group position={[30, 0.24, 91.05]}>
-        <mesh position={[0, 0.74, 0]} material={timber} castShadow receiveShadow><boxGeometry args={[2.2, 0.06, 0.9]} /></mesh>
-        {[[-1.02, -0.38], [1.02, -0.38], [-1.02, 0.38], [1.02, 0.38]].map(([x, z], i) => (
-          <mesh key={i} position={[x, 0.37, z]} material={M.metal}><boxGeometry args={[0.05, 0.74, 0.05]} /></mesh>
-        ))}
-        {/* gaming laptop: black chassis, copper hinge, code on screen, glowing keys */}
-        <group position={[0, 0.78, 0.02]}>
-          <mesh position={[0, 0.012, 0]}><boxGeometry args={[0.36, 0.024, 0.25]} /><meshStandardMaterial color="#17181b" roughness={0.35} metalness={0.5} /></mesh>
-          <mesh position={[0, 0.026, 0.01]}><boxGeometry args={[0.32, 0.004, 0.13]} /><meshStandardMaterial color="#0d0e10" emissive="#2a7bbf" emissiveIntensity={0.6} /></mesh>
-          <mesh position={[0, 0.025, 0.125]}><boxGeometry args={[0.28, 0.012, 0.012]} /><meshStandardMaterial color="#b87333" metalness={0.8} roughness={0.3} /></mesh>
-          <group position={[0, 0.03, 0.125]} rotation-x={-0.32}>
-            <mesh position={[0, 0.115, 0]}><boxGeometry args={[0.36, 0.23, 0.012]} /><meshStandardMaterial color="#17181b" roughness={0.35} metalness={0.5} /></mesh>
-            <mesh position={[0, 0.118, -0.007]} rotation-y={Math.PI}><planeGeometry args={[0.33, 0.2]} /><meshBasicMaterial map={tex.screen} toneMapped={false} /></mesh>
-          </group>
-        </group>
-        {/* white phone, back up, little light strips */}
-        <group position={[0.62, 0.775, -0.12]} rotation-y={0.35}>
-          <mesh><boxGeometry args={[0.075, 0.008, 0.16]} /><meshStandardMaterial color="#f4f4f2" roughness={0.25} /></mesh>
-          <mesh position={[-0.018, 0.0045, -0.05]}><cylinderGeometry args={[0.013, 0.013, 0.003, 16]} /><meshStandardMaterial color="#1b1b1b" /></mesh>
-          <mesh position={[0.012, 0.0045, -0.045]}><torusGeometry args={[0.016, 0.0015, 6, 24]} /><meshStandardMaterial color="#ffffff" emissive="#ffffff" emissiveIntensity={1.4} /></mesh>
-        </group>
-        {/* desk lamp + mug */}
-        <group position={[-0.85, 0.77, 0.15]}>
-          <mesh position={[0, 0.01, 0]} material={M.metal}><cylinderGeometry args={[0.07, 0.08, 0.02, 16]} /></mesh>
-          <mesh position={[0, 0.2, 0]} rotation-z={0.3} material={M.metal}><cylinderGeometry args={[0.008, 0.008, 0.4, 8]} /></mesh>
-          <mesh position={[0.08, 0.38, 0]} rotation-z={-1.1}><coneGeometry args={[0.06, 0.1, 16, 1, true]} /><meshStandardMaterial color="#c2410c" side={THREE.DoubleSide} /></mesh>
-          <pointLight position={[0.1, 0.32, 0]} intensity={1.6} distance={2.4} color="#ffc98a" />
-        </group>
-        <mesh position={[0.45, 0.82, 0.1]}><cylinderGeometry args={[0.04, 0.035, 0.09, 16]} /><meshStandardMaterial color="#f4efe4" roughness={0.4} /></mesh>
-      </group>
-      {/* chair */}
-      <group position={[30, 0.24, 89.9]}>
-        <mesh position={[0, 0.48, 0]}><boxGeometry args={[0.55, 0.08, 0.55]} /><meshStandardMaterial color="#202226" roughness={0.6} /></mesh>
-        <mesh position={[0, 0.95, -0.27]} rotation-x={-0.12}><boxGeometry args={[0.52, 0.85, 0.08]} /><meshStandardMaterial color="#202226" roughness={0.6} /></mesh>
-        <mesh position={[0, 0.95, -0.235]} rotation-x={-0.12}><boxGeometry args={[0.1, 0.7, 0.02]} /><meshStandardMaterial color="#6b7a2e" roughness={0.6} /></mesh>
-        <mesh position={[0, 0.24, 0]} material={M.metal}><cylinderGeometry args={[0.03, 0.03, 0.45, 8]} /></mesh>
-        <mesh position={[0, 0.04, 0]} material={M.metal}><cylinderGeometry args={[0.3, 0.3, 0.04, 5]} /></mesh>
-      </group>
+      <DeskSetup screen={tex.screen} />
 
       {/* posters (original art) */}
       {([
-        ['crimsonMoon', [28.6, 2.2, Z1 - 0.17], Math.PI],
-        ['spiral', [31.4, 2.2, Z1 - 0.17], Math.PI],
-        ['noir', [X0 + 0.17, 2.0, 86], Math.PI / 2],
-        ['frostAxe', [X0 + 0.17, 2.0, 89.2], Math.PI / 2],
-        ['code', [X1 - 0.17, 2.4, 83.2], -Math.PI / 2],
+        ['crimsonMoon', [X0 + 0.17, 1.95, 86.7], Math.PI / 2],
+        ['spiral', [X0 + 0.17, 1.95, 88.0], Math.PI / 2],
+        ['noir', [X0 + 0.17, 1.95, 89.3], Math.PI / 2],
+        ['frostAxe', [X0 + 0.17, 1.95, 90.6], Math.PI / 2],
+        ['code', [X1 - 0.17, 1.95, 90.6], -Math.PI / 2],
       ] as const).map(([name, pos, r]) => (
         <group key={name} position={pos as unknown as [number, number, number]} rotation-y={r}>
           <mesh position={[0, 0, -0.005]}><boxGeometry args={[0.98, 1.36, 0.02]} /><meshStandardMaterial color="#141414" /></mesh>
@@ -255,7 +237,7 @@ export default function Home() {
         {walls.map(([w, h, d, x, y, z], i) => <CuboidCollider key={i} args={[w / 2, h / 2, d / 2]} position={[x, y, z]} />)}
         <CuboidCollider args={[(X1 - X0) / 2 + 0.6, 0.2, (Z1 - Z0) / 2 + 0.6]} position={[cx, H + 0.2, cz]} />
         <CuboidCollider args={[(X1 - X0) / 2, 0.12, (Z1 - Z0) / 2]} position={[cx, 0.12, cz]} />
-        <CuboidCollider args={[1.1, 0.4, 0.45]} position={[30, 0.64, 91.05]} />
+        <CuboidCollider args={[1.05, 0.42, 0.46]} position={[30, 0.66, 91.28]} />
         <CuboidCollider args={[0.2, 0.6, 1.2]} position={[X1 - 0.35, 1.5, 87.6]} />
         <CuboidCollider args={[0.6, 0.35, 0.6]} position={[25.4, 0.45, 83.6]} />
         <CuboidCollider args={[6, 0.55, 0.45]} position={[17, 0.75, 67.8]} />
