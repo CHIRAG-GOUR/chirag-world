@@ -42,3 +42,7 @@ next-env.d.ts
 
 # Blender autosave backups
 *.blend1
+
+# blender
+__pycache__/
+*.blend1

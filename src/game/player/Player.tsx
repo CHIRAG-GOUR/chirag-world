@@ -7,17 +7,22 @@ import { useKeyboardControls } from '@react-three/drei';
 import { RigidBody, CapsuleCollider, useRapier, type RapierRigidBody } from '@react-three/rapier';
 import type { Collider, KinematicCharacterController } from '@dimforge/rapier3d-compat';
 import CharacterModel from './CharacterGLB';
-import { runtime, SPAWN, HOME } from './runtime';
+import { runtime, SPAWN, HOME, GAIT } from './runtime';
 import { touch } from './touch';
 import { useSession, useSettings } from '../state/stores';
 
 export const CAPSULE = { halfHeight: 0.55, radius: 0.42 };
 const FEET = CAPSULE.halfHeight + CAPSULE.radius;
 
+// Human numbers: a jog is reached in ~0.6 s, a sprint in ~1.1 s, a stop takes ~0.4 s; a standing jump clears ~0.6 m.
 const TUNING = {
-  walk: 4.2, sprint: 7.6, accel: 18, decel: 22, airControl: 0.35,
-  gravity: -24, jump: 8.2, coyote: 0.12, buffer: 0.12, turnRate: 12, maxFall: -40,
+  accel: 5.2, sprintAccel: 4.6, decel: 7.5, airControl: 0.25,
+  gravity: -20, jump: 5.0, coyote: 0.12, buffer: 0.12, maxFall: -40,
+  turnStill: 6.5, turnWalk: 7.5, turnSprint: 3.2, // max facing turn rate, rad/s
+  pivotAngle: 1.15, // input this far behind (rad) from a standstill = turn on the spot first
 };
+const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
+const smoothstep = (a: number, b: number, x: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
 export type Controls = 'forward' | 'back' | 'left' | 'right' | 'sprint' | 'jump';
 
@@ -41,7 +46,15 @@ export default function Player() {
     return () => { controllerRef.current = null; world.removeCharacterController(c); };
   }, [world]);
 
-  const state = useRef({ vel: new THREE.Vector3(), vy: 0, coyote: 0, buffer: 0, jumpHeld: false, airTime: 0 });
+  const state = useRef({ vel: new THREE.Vector3(), speed: 0, vy: 0, coyote: 0, buffer: 0, jumpHeld: false, airTime: 0 });
+
+  // CapsLock toggles a relaxed walk (GTA-style); mirrors the OS caps state so it never gets out of sync
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.code === 'CapsLock') runtime.walkMode = e.getModifierState('CapsLock'); };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('keyup', onKey);
+    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('keyup', onKey); };
+  }, []);
   // every visit starts at home, seated at the desk
   const start = useMemo(() => new THREE.Vector3(HOME.chair.x, 0.24 + FEET, HOME.chair.z), []);
 
@@ -62,7 +75,7 @@ export default function Player() {
       runtime.position.copy(cp);
       runtime.speed = Math.abs(runtime.car.speed);
       runtime.grounded = true;
-      s.vel.set(0, 0, 0); s.vy = 0;
+      s.vel.set(0, 0, 0); s.vy = 0; s.speed = 0;
       return;
     }
     // seated at the desk until the player stands up
@@ -80,7 +93,7 @@ export default function Player() {
     if (runtime.teleport) {
       b.setTranslation(runtime.teleport, true);
       b.setNextKinematicTranslation(runtime.teleport);
-      s.vel.set(0, 0, 0); s.vy = 0;
+      s.vel.set(0, 0, 0); s.vy = 0; s.speed = 0;
       runtime.teleport = null;
       return;
     }
@@ -89,23 +102,48 @@ export default function Player() {
     const k = canMove ? getKeys() : { forward: false, back: false, left: false, right: false, sprint: false, jump: false };
     let ix = (k.right ? 1 : 0) - (k.left ? 1 : 0) + (canMove ? touch.move.x : 0);
     let iz = (k.back ? 1 : 0) - (k.forward ? 1 : 0) + (canMove ? touch.move.y : 0);
-    const len = Math.hypot(ix, iz);
-    if (len > 1) { ix /= len; iz /= len; }
+    const mag = Math.min(1, Math.hypot(ix, iz));
+    const ilen = Math.hypot(ix, iz);
+    if (ilen > 0) { ix /= ilen; iz /= ilen; }
     const yaw = runtime.cameraYaw;
-    const fwd = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
-    const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
-    const wish = right.multiplyScalar(ix).add(fwd.multiplyScalar(-iz));
+    const wishX = Math.cos(yaw) * ix - Math.sin(yaw) * -iz;
+    const wishZ = -Math.sin(yaw) * ix - Math.cos(yaw) * -iz;
     const sprint = k.sprint || touch.sprint;
-    const target = wish.multiplyScalar(sprint ? TUNING.sprint : TUNING.walk);
-
-    // ---- horizontal velocity with acceleration / deceleration
+    const touching = Math.hypot(touch.move.x, touch.move.y) > 0.05;
+    // gait: CapsLock = relaxed walk, default = jog, Shift = sprint; a half-pushed stick walks
+    let gait = runtime.walkMode ? GAIT.walk : sprint ? GAIT.sprint : GAIT.jog;
+    if (touching && !sprint) gait = mag < 0.55 ? GAIT.walk * Math.max(0.35, mag / 0.55) : GAIT.jog;
     const grounded = runtime.grounded;
-    const rate = (target.lengthSq() > 0.01 ? TUNING.accel : TUNING.decel) * (grounded ? 1 : TUNING.airControl);
-    const flatVel = new THREE.Vector3(s.vel.x, 0, s.vel.z);
-    const delta = target.clone().sub(flatVel);
-    const maxStep = rate * dt;
-    if (delta.length() > maxStep) delta.setLength(maxStep);
-    s.vel.x += delta.x; s.vel.z += delta.z;
+
+    // ---- facing: the body turns toward where he is going; he never slides sideways
+    let targetSpeed = 0;
+    let turnRate = 0;
+    runtime.turningInPlace = 0;
+    if (mag > 0.05) {
+      const want = Math.atan2(wishX, wishZ);
+      const diff = wrap(want - runtime.facing);
+      const fast = smoothstep(GAIT.jog, GAIT.sprint, s.speed);
+      const maxTurn = s.speed < 0.3 ? TUNING.turnStill : TUNING.turnWalk + (TUNING.turnSprint - TUNING.turnWalk) * fast;
+      // eased approach: quick for big corrections, gentle for small ones (no snapping, no jitter)
+      const step = Math.sign(diff) * Math.min(Math.abs(diff), maxTurn * dt, Math.abs(diff) * Math.min(1, 10 * dt) + 0.6 * dt);
+      if (grounded) { runtime.facing = wrap(runtime.facing + step); turnRate = step / Math.max(dt, 1e-4); }
+      const pivot = s.speed < 0.35 && Math.abs(diff) > TUNING.pivotAngle;
+      if (pivot) runtime.turningInPlace = Math.sign(diff);
+      // slow down through sharp turns instead of skating round them
+      targetSpeed = pivot ? 0 : gait * mag * smoothstep(-0.3, 0.85, Math.cos(diff));
+    }
+
+    // ---- speed along the facing direction with human acceleration / deceleration
+    const prevSpeed = s.speed;
+    if (grounded) {
+      const rate = targetSpeed > s.speed ? (targetSpeed > GAIT.jog + 0.2 ? TUNING.sprintAccel : TUNING.accel) : TUNING.decel;
+      s.speed += Math.sign(targetSpeed - s.speed) * Math.min(Math.abs(targetSpeed - s.speed), rate * dt);
+      s.vel.set(Math.sin(runtime.facing) * s.speed, 0, Math.cos(runtime.facing) * s.speed);
+    } else if (mag > 0.05) {
+      // a little air control, no mid-air spinning
+      s.vel.x += (wishX * gait - s.vel.x) * TUNING.airControl * dt;
+      s.vel.z += (wishZ * gait - s.vel.z) * TUNING.airControl * dt;
+    }
 
     // ---- jump: coyote time + input buffering, only on a fresh press
     const jumpPressed = (k.jump || touch.jump) && canMove;
@@ -129,21 +167,29 @@ export default function Player() {
     b.setNextKinematicTranslation(next);
     const nowGrounded = controller.computedGrounded();
     if (s.vy > 0 && m.y < desired.y * 0.5) s.vy = 0; // bonked a ceiling
-    // keep actual (collided) horizontal speed so we don't push into walls
-    if (dt > 0) { s.vel.x = m.x / dt; s.vel.z = m.z / dt; }
-
-    // ---- facing + animation state
-    const hs = Math.hypot(s.vel.x, s.vel.z);
-    if (hs > 0.4) {
-      const want = Math.atan2(s.vel.x, s.vel.z);
-      let d = want - runtime.facing;
-      d = Math.atan2(Math.sin(d), Math.cos(d));
-      runtime.facing += d * Math.min(1, TUNING.turnRate * dt);
+    // walking into a wall: the legs slow down with the body instead of running on the spot
+    if (dt > 0) {
+      const actual = Math.hypot(m.x, m.z) / dt;
+      if (nowGrounded && actual < s.speed - 0.05) s.speed = Math.max(actual, s.speed - TUNING.decel * dt);
+      if (!nowGrounded) { s.vel.x = m.x / dt; s.vel.z = m.z / dt; }
     }
+
+    // ---- publish state for the animation system
     s.airTime = nowGrounded ? 0 : s.airTime + dt;
     runtime.grounded = nowGrounded || s.airTime < 0.06;
-    runtime.speed = hs;
-    runtime.anim = !runtime.grounded ? (s.vy > 0 ? 'jump' : 'fall') : hs > 5.5 ? 'run' : hs > 0.35 ? 'walk' : 'idle';
+    runtime.speed = grounded ? s.speed : Math.hypot(s.vel.x, s.vel.z);
+    // low-passed: raw frame-to-frame acceleration spikes on wall contact and would jerk the upper body
+    const rawAccel = THREE.MathUtils.clamp((s.speed - prevSpeed) / Math.max(dt, 1e-4), -12, 12);
+    runtime.accel += (rawAccel - runtime.accel) * Math.min(1, 5 * dt);
+    runtime.turnRate += (turnRate - runtime.turnRate) * Math.min(1, 12 * dt);
+    runtime.vy = s.vy;
+    const v = runtime.speed;
+    runtime.anim = !runtime.grounded ? (s.vy > 0 ? 'jump' : 'fall')
+      : runtime.turningInPlace ? 'turn'
+      : v < 0.15 ? 'idle'
+      : runtime.accel > 1.5 && v < GAIT.jog * 0.8 ? 'start'
+      : runtime.accel < -2 && targetSpeed < v ? 'stop'
+      : v < 2.0 ? 'walk' : v < 3.6 ? 'jog' : v < 4.6 ? 'run' : 'sprint';
     runtime.position.set(next.x, next.y - FEET, next.z);
     runtime.velocity.set(s.vel.x, s.vy, s.vel.z);
     if (visual.current) visual.current.rotation.y = runtime.facing;

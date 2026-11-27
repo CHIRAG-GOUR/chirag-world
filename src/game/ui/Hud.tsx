@@ -136,7 +136,7 @@ export default function Hud() {
       {/* bottom-left: controls hint */}
       {hint && !live.driving ? (
         <div className="panel absolute bottom-4 left-4 hidden gap-3 px-3 py-2 text-xs text-ink-2 md:flex">
-          {[['WASD', 'move'], ['Shift', 'sprint'], ['Space', 'jump'], ['E', 'interact'], ['F', 'car'], ['Tab', 'map'], ['C', 'camera']].map(([k, v]) => (
+          {[['WASD', 'move'], ['Shift', 'sprint'], ['Caps', 'walk'], ['Space', 'jump'], ['E', 'interact'], ['F', 'car'], ['Tab', 'map'], ['C', 'camera']].map(([k, v]) => (
             <span key={k} className="flex items-center gap-1.5"><span className="kbd">{k}</span>{v}</span>
           ))}
         </div>

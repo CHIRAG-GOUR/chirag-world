@@ -1,0 +1,57 @@
+{
+ "idle": {
+  "loop": true,
+  "seconds": 8.0,
+  "speed": 0.0
+ },
+ "walk": {
+  "loop": true,
+  "seconds": 1.0,
+  "speed": 1.1126
+ },
+ "run": {
+  "loop": true,
+  "seconds": 0.7273,
+  "speed": 2.6152
+ },
+ "sprint": {
+  "loop": true,
+  "seconds": 0.6486,
+  "speed": 4.3982
+ },
+ "turn_left": {
+  "loop": false,
+  "seconds": 1.1,
+  "speed": 0.0
+ },
+ "turn_right": {
+  "loop": false,
+  "seconds": 1.1,
+  "speed": 0.0
+ },
+ "jump": {
+  "loop": false,
+  "seconds": 0.75,
+  "speed": 0.0
+ },
+ "fall": {
+  "loop": true,
+  "seconds": 0.8,
+  "speed": 0.0
+ },
+ "land": {
+  "loop": false,
+  "seconds": 0.8,
+  "speed": 0.0
+ },
+ "sit": {
+  "loop": false,
+  "seconds": 0.0,
+  "speed": 0.0
+ },
+ "drive": {
+  "loop": false,
+  "seconds": 0.0,
+  "speed": 0.0
+ }
+}
